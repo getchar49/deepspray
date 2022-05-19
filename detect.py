@@ -18,6 +18,34 @@ from utils.general import (
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 
+def filt(image):
+  result = []
+  image2 = image.copy()
+  gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+  thresh = 255-cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+  num_labels, label_img = cv2.connectedComponents(thresh)
+  mask = np.zeros(image.shape[:2]).astype(int)
+  for i in range(1,num_labels):
+    sus = False
+    cnt = np.argwhere(label_img==i)
+    if (len(cnt)>25):
+        continue
+    cnt = np.array([[x[1],x[0]] for x in cnt])
+    #print(cnt)
+    
+    rect = cv2.minAreaRect(cnt)
+    if (len(cnt)<25):
+      result.append(list(cv2.boundingRect(cnt))+[0])
+      mask = mask | ((label_img==i)*255)
+      continue
+  """
+  for rect in result:
+    x,y,w,h,cls = rect
+    cv2.rectangle(image2,(x,y),(x+w,y+h),(0,255,0),1)
+  imshow(image2)
+  """
+  return result,mask
+
 def detect(save_img=False):
     out, source, weights, view_img, save_txt, imgsz = \
         opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size
@@ -58,6 +86,7 @@ def detect(save_img=False):
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
+    print(names)
     colors = [[random.randint(0, 255) for _ in range(3)] for _ in range(len(names))]
 
     # Run inference
@@ -65,6 +94,9 @@ def detect(save_img=False):
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
     for path, img, im0s, vid_cap in dataset:
+        result,mask = filt(img)
+        img2 = img.copy()
+        img = img & (255-mask)
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -84,6 +116,7 @@ def detect(save_img=False):
             pred = apply_classifier(pred, modelc, img, im0s)
 
         # Process detections
+        print(pred)
         for i, det in enumerate(pred):  # detections per image
             if webcam:  # batch_size >= 1
                 p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
@@ -104,6 +137,8 @@ def detect(save_img=False):
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
                     line_re += '%g %ss, ' % (n, names[int(c)])
+                    if (names[int(c)]=='drops'):
+                        n = n + len(result)
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
                 
                 # Write results
