@@ -5,10 +5,11 @@ import shutil
 import time
 from pathlib import Path
 os.environ["CUDA_VISIBLE_DEVICES"]="1"
-
+from google.colab.patches import cv2_imshow as imshow
 import cv2
 import torch
 import torch.backends.cudnn as cudnn
+import numpy as np
 from numpy import random
 
 from models.experimental import attempt_load
@@ -20,9 +21,11 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 def filt(image):
   result = []
+  #image = np.transpose(image,(1,2,0))
   image2 = image.copy()
   gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-  thresh = 255-cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+  thresh = ((gray>250)*255).astype(np.uint8)
+  #thresh = 255-cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
   num_labels, label_img = cv2.connectedComponents(thresh)
   mask = np.zeros(image.shape[:2]).astype(int)
   for i in range(1,num_labels):
@@ -35,7 +38,9 @@ def filt(image):
     
     rect = cv2.minAreaRect(cnt)
     if (len(cnt)<25):
-      result.append(list(cv2.boundingRect(cnt))+[0])
+      x,y,w,h = cv2.boundingRect(cnt)
+      
+      result.append([x,y,x+w,y+h,3])
       mask = mask | ((label_img==i)*255)
       continue
   """
@@ -94,9 +99,20 @@ def detect(save_img=False):
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
     for path, img, im0s, vid_cap in dataset:
-        result,mask = filt(img)
-        img2 = img.copy()
-        img = img & (255-mask)
+        
+        print(im0s.shape)
+        #print("Shape: ",np.array(img).shape)
+        #print(im0s)
+        img2 = im0s.copy()
+        #imshow(img)
+        result,mask = filt(im0s)
+        #print(result)
+        #img2 = img.copy()
+        im0s = np.array([im0s[:,:,i] | mask for i in range(im0s.shape[2])])
+        im0s = np.transpose(im0s,(1,2,0))
+        cv2.imwrite("test.png", im0s)
+        print(im0s.shape)
+        #print(mask)
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -116,7 +132,7 @@ def detect(save_img=False):
             pred = apply_classifier(pred, modelc, img, im0s)
 
         # Process detections
-        print(pred)
+        #print(pred)
         for i, det in enumerate(pred):  # detections per image
             if webcam:  # batch_size >= 1
                 p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
@@ -137,12 +153,18 @@ def detect(save_img=False):
                 for c in det[:, -1].unique():
                     n = (det[:, -1] == c).sum()  # detections per class
                     line_re += '%g %ss, ' % (n, names[int(c)])
-                    if (names[int(c)]=='drops'):
+                    #print(len(result))
+                    #print(n)
+                    if (names[int(c)]=='drop'):
                         n = n + len(result)
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
                 
                 # Write results
+                #print(det)
                 for *xyxy, conf, cls in det:
+                """
+                for *xyxy, conf, cls in det:
+                    #print("Det: ",xyxy)
                     if save_txt:  # Write to file
                         xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
                         with open(txt_path + '.txt', 'a') as f:
@@ -151,7 +173,17 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
+                for *xyxy, cls in result:
+                    #print("Res: ",xyxy)
+                    if save_txt:  # Write to file
+                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                        with open(txt_path + '.txt', 'a') as f:
+                            f.write(('%g ' * 5 + '\n') % (cls, *xywh))  # label format
 
+                    if save_img or view_img:  # Add bbox to image
+                        label = '%s' % (names[int(cls)])
+                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
+                        """
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
