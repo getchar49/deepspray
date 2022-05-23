@@ -11,9 +11,11 @@ import torch
 import torch.backends.cudnn as cudnn
 import numpy as np
 from numpy import random
+import glob
+from matplotlib import pyplot as plt
 
 from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
+from utils.datasets import LoadStreams, LoadImages, letterbox
 from utils.general import (
     check_img_size, non_max_suppression, apply_classifier, scale_coords, xyxy2xywh, plot_one_box, strip_optimizer)
 from utils.torch_utils import select_device, load_classifier, time_synchronized
@@ -21,7 +23,7 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 def filt(image):
   result = []
-  image = np.transpose(image,(1,2,0))
+  #image = np.transpose(image,(1,2,0))
   image2 = image.copy()
   gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   thresh = (255-(gray>250)*255).astype(np.uint8)
@@ -33,13 +35,13 @@ def filt(image):
   for i in range(1,num_labels):
     sus = False
     cnt = np.argwhere(label_img==i)
-    if (len(cnt)>=0):
+    if (len(cnt)>=50):
         continue
     cnt = np.array([[x[1],x[0]] for x in cnt])
     #print(cnt)
     
     rect = cv2.minAreaRect(cnt)
-    if (len(cnt)<0):
+    if (len(cnt)<50):
       x,y,w,h = cv2.boundingRect(cnt)
       
       result.append([x,y,x+w,y+h,3])
@@ -101,17 +103,30 @@ def detect(save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
-    cnt = 0
+    cnt = -1
+    paths = glob.glob("/content/data/front_png/*")
+    paths.sort()
+    final = np.zeros((len(paths),len(names)))
     for path, img, im0s, vid_cap in dataset:
         cnt += 1
+        im1s = im0s.copy()
+        result,mask = filt(im1s)
+        im1s = np.array([im1s[:,:,i] | mask for i in range(im1s.shape[2])])
+        im1s = np.transpose(im1s,(1,2,0)).astype(np.uint8)
+        img = letterbox(im1s,imgsz)[0]
+        img = img[:, :, ::-1].transpose(2, 0, 1)
+        img = np.ascontiguousarray(img)
+        #print((img==img2).all())
         #print(img)
         #print("Img shape: ",img.shape)
         #print(im0s.shape)
         #print("Shape: ",np.array(img).shape)
         #print(im0s)
+        """
         img2 = img.copy()
         #imshow(img)
-        result,mask = filt(img)
+        result,mask = filt(img2)
+        print("Mask = 0? ",(mask.sum()))
         #print(result)
         #img2 = img.copy()
         #print((mask==255).sum())
@@ -119,11 +134,12 @@ def detect(save_img=False):
         
         img = np.transpose(img,(1,2,0)).astype(np.uint8)
     
-        img = cv2.cvtColor(img,cv2.COLOR_RGB2BGR)
+        img3 = cv2.cvtColor(img,cv2.COLOR_RGB2BGR)
         
-        cv2.imwrite("test_%d.png" % (cnt), img)
+        cv2.imwrite("test_%d.png" % (cnt), img3)
         #print("Image 0 shape: ",im0s.shape)
         img = np.transpose(img,(2,0,1))
+        """
         #print(mask)
         #img = img2
         #print(img.dtype)
@@ -164,6 +180,7 @@ def detect(save_img=False):
             line_re = ''
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
+
                 result = torch.FloatTensor(result)
                 #print(det.dtype)
                 #print(result.dtype)
@@ -179,6 +196,7 @@ def detect(save_img=False):
                     #print(n)
                     if (names[int(c)]=='drop'):
                         n = n + len(result)
+                    final[cnt,int(c)] = n
                     s += '%g %ss, ' % (n, names[int(c)])  # add to string
                 
                 # Write results
@@ -195,7 +213,7 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
-                """
+
 
                 for *xyxy, cls in result:
                     #print("Res: ",xyxy)
@@ -207,7 +225,7 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
-                  """
+ 
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
@@ -236,7 +254,12 @@ def detect(save_img=False):
                         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
                     vid_writer.write(im0)
-
+        if (cnt%5==4):
+          for i in range(final.shape[1]):
+            plt.plot(final[:,i])
+          plt.legend(names)
+          plt.savefig(save+"/chart.png")
+          torch.save(final,save+"/final.pt")
     if save_txt or save_img:
         print('Results saved to %s' % Path(out))
         if platform == 'darwin' and not opt.update:  # MacOS
@@ -261,6 +284,7 @@ if __name__ == '__main__':
     parser.add_argument('--augment', action='store_true', help='augmented inference')
     parser.add_argument('--update', action='store_true', help='update all models')
     parser.add_argument('--gray', action='store_true', help='Gray or RGB image')
+    parser.add_argument('--save',default='/content/deepspray/save')
     opt = parser.parse_args()
     print(opt)
 
