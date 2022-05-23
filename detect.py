@@ -56,8 +56,8 @@ def filt(image):
   return result,mask
 
 def detect(save_img=False):
-    out, source, weights, view_img, save_txt, imgsz = \
-        opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size
+    out, source, weights, view_img, save_txt, imgsz, save, load = \
+        opt.output, opt.source, opt.weights, opt.view_img, opt.save_txt, opt.img_size, opt.save, opt.load
     webcam = source == '0' or source.startswith('rtsp') or source.startswith('http') or source.endswith('.txt')
 
     # Initialize
@@ -107,8 +107,14 @@ def detect(save_img=False):
     paths = glob.glob("/content/data/front_png/*")
     paths.sort()
     final = np.zeros((len(paths),len(names)))
+    if (load):
+        final,start = torch.load(save+"/final.pt")
+    #start = (start//5)*5-1
     for path, img, im0s, vid_cap in dataset:
         cnt += 1
+        if (load):
+            if (cnt<=start):
+                continue
         im1s = im0s.copy()
         result,mask = filt(im1s)
         im1s = np.array([im1s[:,:,i] | mask for i in range(im1s.shape[2])])
@@ -259,7 +265,7 @@ def detect(save_img=False):
             plt.plot(final[:,i])
           plt.legend(names)
           plt.savefig(save+"/chart.png")
-          torch.save(final,save+"/final.pt")
+          torch.save((final,cnt),save+"/final.pt")
     if save_txt or save_img:
         print('Results saved to %s' % Path(out))
         if platform == 'darwin' and not opt.update:  # MacOS
@@ -285,6 +291,7 @@ if __name__ == '__main__':
     parser.add_argument('--update', action='store_true', help='update all models')
     parser.add_argument('--gray', action='store_true', help='Gray or RGB image')
     parser.add_argument('--save',default='/content/deepspray/save')
+    parser.add_argument('--load',default=True)
     opt = parser.parse_args()
     print(opt)
 

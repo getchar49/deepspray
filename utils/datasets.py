@@ -135,7 +135,7 @@ class LoadImages:  # for inference
                 img0 = cv2.cvtColor(img0, cv2.COLOR_BGR2GRAY) 
                 img0 = np.stack((img0,)*3, axis=-1)
             assert img0 is not None, 'Image Not Found ' + path
-            print('image %g/%g %s: ' % (self.count, self.nf, path), end='')
+            print('image %g/%g %s: \n' % (self.count, self.nf, path), end='')
 
         # Padded resize
         img = letterbox(img0, new_shape=self.img_size)[0]
