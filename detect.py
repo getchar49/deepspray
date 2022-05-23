@@ -21,23 +21,25 @@ from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 def filt(image):
   result = []
-  #image = np.transpose(image,(1,2,0))
+  image = np.transpose(image,(1,2,0))
   image2 = image.copy()
   gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
-  thresh = ((gray>250)*255).astype(np.uint8)
+  thresh = (255-(gray>250)*255).astype(np.uint8)
+  cv2.imwrite("thresh.png",thresh)
   #thresh = 255-cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
   num_labels, label_img = cv2.connectedComponents(thresh)
-  mask = np.zeros(image.shape[:2]).astype(int)
+  cv2.imwrite("label_img.png",(label_img>10)*255)
+  mask = np.zeros(image.shape[:2]).astype(np.uint8)
   for i in range(1,num_labels):
     sus = False
     cnt = np.argwhere(label_img==i)
-    if (len(cnt)>25):
+    if (len(cnt)>=0):
         continue
     cnt = np.array([[x[1],x[0]] for x in cnt])
     #print(cnt)
     
     rect = cv2.minAreaRect(cnt)
-    if (len(cnt)<25):
+    if (len(cnt)<0):
       x,y,w,h = cv2.boundingRect(cnt)
       
       result.append([x,y,x+w,y+h,3])
@@ -78,6 +80,7 @@ def detect(save_img=False):
 
     # Set Dataloader
     vid_path, vid_writer = None, None
+    #print(imgsz)
     if webcam:
         view_img = True
         cudnn.benchmark = True  # set True to speed up constant image size inference
@@ -98,21 +101,34 @@ def detect(save_img=False):
     t0 = time.time()
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
+    cnt = 0
     for path, img, im0s, vid_cap in dataset:
-        
-        print(im0s.shape)
+        cnt += 1
+        #print(img)
+        #print("Img shape: ",img.shape)
+        #print(im0s.shape)
         #print("Shape: ",np.array(img).shape)
         #print(im0s)
-        img2 = im0s.copy()
+        img2 = img.copy()
         #imshow(img)
-        result,mask = filt(im0s)
+        result,mask = filt(img)
         #print(result)
         #img2 = img.copy()
-        im0s = np.array([im0s[:,:,i] | mask for i in range(im0s.shape[2])])
-        im0s = np.transpose(im0s,(1,2,0))
-        cv2.imwrite("test.png", im0s)
-        print(im0s.shape)
+        #print((mask==255).sum())
+        img = np.array([img[i,:,:] | mask for i in range(img.shape[0])])
+        
+        img = np.transpose(img,(1,2,0)).astype(np.uint8)
+    
+        img = cv2.cvtColor(img,cv2.COLOR_RGB2BGR)
+        
+        cv2.imwrite("test_%d.png" % (cnt), img)
+        #print("Image 0 shape: ",im0s.shape)
+        img = np.transpose(img,(2,0,1))
         #print(mask)
+        #img = img2
+        #print(img.dtype)
+        #img3 = np.transpose(img,(1,2,0)).astype(np.uint8)
+        #cv2.imwrite("test_%d.png" % (cnt), img3)
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
@@ -129,6 +145,7 @@ def detect(save_img=False):
 
         # Apply Classifier
         if classify:
+            print("Classify true")
             pred = apply_classifier(pred, modelc, img, im0s)
 
         # Process detections
@@ -147,6 +164,11 @@ def detect(save_img=False):
             line_re = ''
             if det is not None and len(det):
                 # Rescale boxes from img_size to im0 size
+                result = torch.FloatTensor(result)
+                #print(det.dtype)
+                #print(result.dtype)
+                #print(result.shape)
+                #result[:,:4] =  scale_coords(img.shape[2:], result[:, :4], im0.shape).round()
                 det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
 
                 # Print results
@@ -173,6 +195,8 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
+                """
+
                 for *xyxy, cls in result:
                     #print("Res: ",xyxy)
                     if save_txt:  # Write to file
@@ -183,7 +207,7 @@ def detect(save_img=False):
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
-
+                  """
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
