@@ -21,23 +21,70 @@ from utils.general import (
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 
-def filt(image):
+gray1 = cv2.imread("/content/deepspray/e1.png")
+gray1 = cv2.cvtColor(gray1,cv2.COLOR_BGR2GRAY)
+gray2 = cv2.imread("/content/deepspray/e2.png")
+gray2 = cv2.cvtColor(gray2,cv2.COLOR_BGR2GRAY)
+
+def filt(image,huthresh=0.02):
+  #circle = np.array([[ -4.53766482],[-21.16798027],[-28.25203244],[-26.64214304],[-57.16263677],[-38.32980899],[-54.09030208]])
   result = []
   #image = np.transpose(image,(1,2,0))
   image2 = image.copy()
   gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   thresh = (255-(gray>250)*255).astype(np.uint8)
+  # imshow(gray)
+  # return 1
+  # imshow(thresh)
+  # return 1
   cv2.imwrite("thresh.png",thresh)
   #thresh = 255-cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
   num_labels, label_img = cv2.connectedComponents(thresh)
-  cv2.imwrite("label_img.png",(label_img>10)*255)
+
   mask = np.zeros(image.shape[:2]).astype(np.uint8)
+  mask2 = mask.copy()
+  first = False
   for i in range(1,num_labels):
     sus = False
     cnt = np.argwhere(label_img==i)
-    if (len(cnt)>=50):
-        continue
     cnt = np.array([[x[1],x[0]] for x in cnt])
+    if (len(cnt)>=50):
+        #print(len(cnt))
+        #print("abc")
+        gray3 = gray.copy()
+        gray3 = (255-(gray3 | (255-(label_img==i)*255))).astype(np.uint8)
+        # h = np.log(np.abs(cv2.HuMoments(cv2.moments(gray3))))
+        #print(h)
+        # print(gray2.shape)
+        #print(i)
+        # imshow(gray2)
+        # break
+        # canny = cv2.Canny(gray2, 100, 255, 3)
+        # h = cv2.HuMoments(cv2.moments(canny))
+        d1 = cv2.matchShapes(gray1, gray3,2,0.0)
+        d2 = cv2.matchShapes(gray2, gray3,2,0.0)
+        if (d1<=huthresh or d2<=huthresh):
+         # print(i)
+          x,y,w,h = cv2.boundingRect(cnt)
+      
+          result.append([x,y,x+w,y+h,3])
+          cv2.rectangle(image2,(x,y),(x+w,y+h),(0,255,0),1)
+          mask = mask | ((label_img==i)*255)
+
+        # h = np.log(np.abs(h))
+        # #print(h)
+        # d2 = (np.abs(h-circle)).sum()
+        # #print(d2)
+        # imshow(canny)
+        # break
+        # mask2 = mask2 | canny
+        # cnts = cv2.findContours(canny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # if (not first):
+        #   print(len(cnts),len(cnts[0]),len(cnts[1]))
+        #   print(cnts[1])
+        #   first = True
+        continue
+    
     #print(cnt)
     
     rect = cv2.minAreaRect(cnt)
@@ -45,6 +92,7 @@ def filt(image):
       x,y,w,h = cv2.boundingRect(cnt)
       
       result.append([x,y,x+w,y+h,3])
+      cv2.rectangle(image2,(x,y),(x+w,y+h),(0,255,0),1)
       mask = mask | ((label_img==i)*255)
       continue
   """
@@ -53,6 +101,7 @@ def filt(image):
     cv2.rectangle(image2,(x,y),(x+w,y+h),(0,255,0),1)
   imshow(image2)
   """
+  #imshow(mask2)
   return result,mask
 
 def detect(save_img=False):
@@ -211,6 +260,8 @@ def detect(save_img=False):
                 im2 = im0s.copy()
                 im3 = im0s.copy()
                 im4 = im0s.copy()
+                im5 = im1s.copy()
+
             save_path = str(Path(out) / Path(p).name)
             txt_path = str(Path(out) / Path(p).stem) + ('_%g' % dataset.frame if dataset.mode == 'video' else '')
             s += '%gx%g ' % img.shape[2:]  # print string
@@ -251,6 +302,7 @@ def detect(save_img=False):
 
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
+                        plot_one_box(xyxy, im5, label=label, color=colors[int(cls)], line_thickness=1)
                         plot_one_box(xyxy, im2, label=label, color=colors[int(cls)], line_thickness=1)
                         plot_one_box(xyxy, im3, label=label, color=colors[int(cls)], line_thickness=1)
 
@@ -280,6 +332,7 @@ def detect(save_img=False):
                     cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/example/1/'+tail,im1)
                     cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/example/2/'+tail,im2)
                     cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/example/3/'+tail,im3)
+                    cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/example/5/'+tail,im5)
                     #cv2.imwrite(save_path.split(".")[0]+".png", im0)
 
                     print(save_path)
@@ -399,7 +452,7 @@ if __name__ == '__main__':
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.6, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='display results')
