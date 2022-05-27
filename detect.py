@@ -21,23 +21,70 @@ from utils.general import (
 from utils.torch_utils import select_device, load_classifier, time_synchronized
 
 
-def filt(image):
+gray1 = cv2.imread("/content/deepspray/test/example/e1.png")
+gray1 = cv2.cvtColor(gray1,cv2.COLOR_BGR2GRAY)
+gray2 = cv2.imread("/content/deepspray/test/example/e2.png")
+gray2 = cv2.cvtColor(gray2,cv2.COLOR_BGR2GRAY)
+
+def filt(image,huthresh=0.02):
+  #circle = np.array([[ -4.53766482],[-21.16798027],[-28.25203244],[-26.64214304],[-57.16263677],[-38.32980899],[-54.09030208]])
   result = []
   #image = np.transpose(image,(1,2,0))
   image2 = image.copy()
   gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
   thresh = (255-(gray>250)*255).astype(np.uint8)
+  # imshow(gray)
+  # return 1
+  # imshow(thresh)
+  # return 1
   cv2.imwrite("thresh.png",thresh)
   #thresh = 255-cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
   num_labels, label_img = cv2.connectedComponents(thresh)
-  cv2.imwrite("label_img.png",(label_img>10)*255)
+
   mask = np.zeros(image.shape[:2]).astype(np.uint8)
+  mask2 = mask.copy()
+  first = False
   for i in range(1,num_labels):
     sus = False
     cnt = np.argwhere(label_img==i)
-    if (len(cnt)>=50):
-        continue
     cnt = np.array([[x[1],x[0]] for x in cnt])
+    if (len(cnt)>=50):
+        #print(len(cnt))
+        #print("abc")
+        gray3 = gray.copy()
+        gray3 = (255-(gray3 | (255-(label_img==i)*255))).astype(np.uint8)
+        # h = np.log(np.abs(cv2.HuMoments(cv2.moments(gray3))))
+        #print(h)
+        # print(gray2.shape)
+        #print(i)
+        # imshow(gray2)
+        # break
+        # canny = cv2.Canny(gray2, 100, 255, 3)
+        # h = cv2.HuMoments(cv2.moments(canny))
+        d1 = cv2.matchShapes(gray1, gray3,2,0.0)
+        d2 = cv2.matchShapes(gray2, gray3,2,0.0)
+        if (d1<=huthresh or d2<=huthresh):
+         # print(i)
+          x,y,w,h = cv2.boundingRect(cnt)
+      
+          result.append([x,y,x+w,y+h,3])
+          cv2.rectangle(image2,(x,y),(x+w,y+h),(0,255,0),1)
+          mask = mask | ((label_img==i)*255)
+
+        # h = np.log(np.abs(h))
+        # #print(h)
+        # d2 = (np.abs(h-circle)).sum()
+        # #print(d2)
+        # imshow(canny)
+        # break
+        # mask2 = mask2 | canny
+        # cnts = cv2.findContours(canny, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        # if (not first):
+        #   print(len(cnts),len(cnts[0]),len(cnts[1]))
+        #   print(cnts[1])
+        #   first = True
+        continue
+    
     #print(cnt)
     
     rect = cv2.minAreaRect(cnt)
@@ -45,6 +92,7 @@ def filt(image):
       x,y,w,h = cv2.boundingRect(cnt)
       
       result.append([x,y,x+w,y+h,3])
+      cv2.rectangle(image2,(x,y),(x+w,y+h),(0,255,0),1)
       mask = mask | ((label_img==i)*255)
       continue
   """
@@ -53,6 +101,7 @@ def filt(image):
     cv2.rectangle(image2,(x,y),(x+w,y+h),(0,255,0),1)
   imshow(image2)
   """
+  #imshow(mask2)
   return result,mask
 
 def detect(save_img=False):
@@ -62,11 +111,11 @@ def detect(save_img=False):
 
     # Initialize
     device = select_device(opt.device)
-    """
+
     if os.path.exists(out):
         shutil.rmtree(out)  # delete output folder
     os.makedirs(out)  # make new output folder
-    """
+
     half = device.type != 'cpu'  # half precision only supported on CUDA
 
     # Load model
@@ -106,13 +155,27 @@ def detect(save_img=False):
     img = torch.zeros((1, 3, imgsz, imgsz), device=device)  # init img
     _ = model(img.half() if half else img) if device.type != 'cpu' else None  # run once
     cnt = -1
-    paths = glob.glob("/content/data/front_png/*")
+    #print("Source: ",source)
+    #fold = source.split('/')
+   # print("Fold: ",fold)
+    paths = glob.glob(source+'/*')
+   # print(paths)
+    #paths = glob.glob("/content/data/front_png/*")
     paths.sort()
     final = np.zeros((len(paths),len(names)))
-    if (load):
+    final2 = np.zeros((len(paths),len(names)))
+    if (int(load)):
         final,start = torch.load(save+"/final.pt")
+        final2,start = torch.load(save+"/final2.pt")
+    else:
+        start = -1
+
     #start = (start//5)*5-1
     for path, img, im0s, vid_cap in dataset:
+        tail = path.split('/')[-1]
+        #print(tail)
+
+        #print(path)
         cnt += 1
         if (load):
             if (cnt<=start):
@@ -120,7 +183,10 @@ def detect(save_img=False):
         im1s = im0s.copy()
         result,mask = filt(im1s)
         im1s = np.array([im1s[:,:,i] | mask for i in range(im1s.shape[2])])
+        print(im1s.shape)
         im1s = np.transpose(im1s,(1,2,0)).astype(np.uint8)
+        #cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/example/'+tail,im1s)
+        img2 = img.copy()
         img = letterbox(im1s,imgsz)[0]
         img = img[:, :, ::-1].transpose(2, 0, 1)
         img = np.ascontiguousarray(img)
@@ -158,15 +224,28 @@ def detect(save_img=False):
         img /= 255.0  # 0 - 255 to 0.0 - 1.0
         if img.ndimension() == 3:
             img = img.unsqueeze(0)
-
+        
+        
         # Inference
         t1 = time_synchronized()
         pred = model(img, augment=opt.augment)[0]
 
         # Apply NMS
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t2 = time_synchronized()
 
+        img = img2.copy()
+        img = torch.from_numpy(img).to(device)
+        img = img.half() if half else img.float()  # uint8 to fp16/32
+        img /= 255.0  # 0 - 255 to 0.0 - 1.0
+        if img.ndimension() == 3:
+            img = img.unsqueeze(0)
+      
+        pred2 = model(img, augment=opt.augment)[0]
+
+        # Apply NMS
+        pred2 = non_max_suppression(pred2, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
+        t2 = time_synchronized()
+        print(len(pred[0]),len(pred2[0]))
         # Apply Classifier
         if classify:
             print("Classify true")
@@ -179,6 +258,11 @@ def detect(save_img=False):
                 p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
             else:
                 p, s, im0 = path, '', im0s
+                im1 = im0s.copy()
+                im2 = im0s.copy()
+                im3 = im0s.copy()
+                im4 = im0s.copy()
+                im5 = im1s.copy()
 
             save_path = str(Path(out) / Path(p).name)
             txt_path = str(Path(out) / Path(p).stem) + ('_%g' % dataset.frame if dataset.mode == 'video' else '')
@@ -220,8 +304,9 @@ def detect(save_img=False):
 
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
-
+                        plot_one_box(xyxy, im5, label=label, color=colors[int(cls)], line_thickness=1)
+                        plot_one_box(xyxy, im2, label=label, color=colors[int(cls)], line_thickness=1)
+                        plot_one_box(xyxy, im3, label=label, color=colors[int(cls)], line_thickness=1)
 
                 for *xyxy, cls in result:
                     #print("Res: ",xyxy)
@@ -232,8 +317,8 @@ def detect(save_img=False):
 
                     if save_img or view_img:  # Add bbox to image
                         label = '%s' % (names[int(cls)])
-                        plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=2)
- 
+                        plot_one_box(xyxy, im1, label=label, color=colors[int(cls)], line_thickness=1)
+                        plot_one_box(xyxy, im3, label=label, color=colors[int(cls)], line_thickness=1)
             # Print time (inference + NMS)
             print('%sDone. (%.3fs)' % (s, t2 - t1))
 
@@ -246,7 +331,12 @@ def detect(save_img=False):
             # Save results (image with detections)
             if save_img:
                 if dataset.mode == 'images':
-                    cv2.imwrite(save_path.split(".")[0]+".png", im0)
+                    cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/all/1/'+tail,im1)
+                    cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/all/2/'+tail,im2)
+                    cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/all/3/'+tail,im3)
+                    cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/all/5/'+tail,im5)
+                    #cv2.imwrite(save_path.split(".")[0]+".png", im0)
+
                     print(save_path)
                     with open(save_path + ".txt", "w") as f:
                         f.write(line_re)
@@ -262,12 +352,95 @@ def detect(save_img=False):
                         h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
                         vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
                     vid_writer.write(im0)
+
+        for i, det in enumerate(pred2):  # detections per image
+            if webcam:  # batch_size >= 1
+                p, s, im0 = path[i], '%g: ' % i, im0s[i].copy()
+            else:
+                p, s, im0 = path, '', im0s
+                im1 = im0s.copy()
+                im2 = im0s.copy()
+                im3 = im0s.copy()
+                im4 = im0s.copy()
+            save_path = str(Path(out) / Path(p).name)
+            txt_path = str(Path(out) / Path(p).stem) + ('_%g' % dataset.frame if dataset.mode == 'video' else '')
+            s += '%gx%g ' % img.shape[2:]  # print string
+            gn = torch.tensor(im0.shape)[[1, 0, 1, 0]]  # normalization gain whwh
+            
+            line_re = ''
+            if det is not None and len(det):
+                # Rescale boxes from img_size to im0 size
+
+                #print(det.dtype)
+                #print(result.dtype)
+                #print(result.shape)
+                #result[:,:4] =  scale_coords(img.shape[2:], result[:, :4], im0.shape).round()
+                det[:, :4] = scale_coords(img.shape[2:], det[:, :4], im0.shape).round()
+
+                # Print results
+                for c in det[:, -1].unique():
+                    n = (det[:, -1] == c).sum()  # detections per class
+                    line_re += '%g %ss, ' % (n, names[int(c)])
+                    #print(len(result))
+                    #print(n)
+
+                    final2[cnt,int(c)] = n
+                    s += '%g %ss, ' % (n, names[int(c)])  # add to string
+                
+                # Write results
+                #print(det)
+
+
+                for *xyxy, conf, cls in det:
+                    #print("Det: ",xyxy)
+                    if save_txt:  # Write to file
+                        xywh = (xyxy2xywh(torch.tensor(xyxy).view(1, 4)) / gn).view(-1).tolist()  # normalized xywh
+                        with open(txt_path + '.txt', 'a') as f:
+                            f.write(('%g ' * 5 + '\n') % (cls, *xywh))  # label format
+
+                    if save_img or view_img:  # Add bbox to image
+                        label = '%s' % (names[int(cls)])
+                        
+                        plot_one_box(xyxy, im4, label=label, color=colors[int(cls)], line_thickness=1)
+                
+                        
+
+            # Print time (inference + NMS)
+            print('%sDone. (%.3fs)' % (s, t2 - t1))
+
+            # Stream results
+            if view_img:
+                cv2.imshow(p, im0)
+                if cv2.waitKey(1) == ord('q'):  # q to quit
+                    raise StopIteration
+
+            # Save results (image with detections)
+            if save_img:
+                if dataset.mode == 'images':
+                    cv2.imwrite('/content/drive/MyDrive/AI_VIN/deepspray/all/4/'+tail,im4)
+                    with open(save_path + ".txt", "w") as f:
+                        f.write(line_re)
+                else:
+                    if vid_path != save_path:  # new video
+                        vid_path = save_path
+                        if isinstance(vid_writer, cv2.VideoWriter):
+                            vid_writer.release()  # release previous video writer
+
+                        fourcc = 'mp4v'  # output video codec
+                        fps = vid_cap.get(cv2.CAP_PROP_FPS)
+                        w = int(vid_cap.get(cv2.CAP_PROP_FRAME_WIDTH))
+                        h = int(vid_cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
+                        vid_writer = cv2.VideoWriter(save_path, cv2.VideoWriter_fourcc(*fourcc), fps, (w, h))
+                    vid_writer.write(im0)
+
         if (cnt%5==4):
           for i in range(final.shape[1]):
             plt.plot(final[:,i])
           plt.legend(names)
           plt.savefig(save+"/chart.png")
           torch.save((final,cnt),save+"/final.pt")
+          torch.save((final2,cnt),save+"/final2.pt")
+
     if save_txt or save_img:
         print('Results saved to %s' % Path(out))
         if platform == 'darwin' and not opt.update:  # MacOS
@@ -282,7 +455,7 @@ if __name__ == '__main__':
     parser.add_argument('--source', type=str, default='inference/images', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--output', type=str, default='inference/output', help='output folder')  # output folder
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.4, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.6, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='display results')
@@ -293,7 +466,7 @@ if __name__ == '__main__':
     parser.add_argument('--update', action='store_true', help='update all models')
     parser.add_argument('--gray', action='store_true', help='Gray or RGB image')
     parser.add_argument('--save',default='/content/deepspray/save')
-    parser.add_argument('--load',default=True)
+    parser.add_argument('--load',default=False)
     opt = parser.parse_args()
     print(opt)
 
