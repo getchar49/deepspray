@@ -245,7 +245,7 @@ def detect(save_img=False):
         # Apply NMS
         pred2 = non_max_suppression(pred2, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
         t2 = time_synchronized()
-        print(len(pred[0]),len(pred2[0]))
+        #print(len(pred[0]),len(pred2[0]))
         # Apply Classifier
         if classify:
             print("Classify true")
